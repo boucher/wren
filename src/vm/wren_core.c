@@ -897,6 +897,31 @@ DEF_PRIMITIVE(object_type)
   RETURN_OBJ(wrenGetClass(vm, args[0]));
 }
 
+DEF_PRIMITIVE(object_subscript)
+{
+  if (!validateString(vm, args[1], "Argument")) return false;
+
+  Obj* obj = AS_OBJ(args[0]);
+  ObjClass* classObj = obj->classObj;
+
+  ObjString *str = AS_STRING(args[1]);
+  int symbol = wrenSymbolTableFind(&vm->methodNames, str->value, str->length);
+
+  Method* method;
+  if (symbol < 0 || symbol >= classObj->methods.count ||
+      (method = &classObj->methods.data[symbol])->type == METHOD_NONE)
+  {
+    vm->fiber->error = wrenStringFormat(vm, 
+      "@ does not implement '$'.", OBJ_VAL(classObj->name), str->value);
+    return false;
+  }
+
+  vm->fiber->stackTop--;
+  wrenCallFunction(vm, vm->fiber, method->as.closure, 1);
+
+  return false;
+}
+
 DEF_PRIMITIVE(range_from)
 {
   RETURN_NUM(AS_RANGE(args[0])->from);
@@ -1250,6 +1275,7 @@ void wrenInitializeCore(WrenVM* vm)
   PRIMITIVE(vm->objectClass, "is(_)", object_is);
   PRIMITIVE(vm->objectClass, "toString", object_toString);
   PRIMITIVE(vm->objectClass, "type", object_type);
+  PRIMITIVE(vm->objectClass, "[_]", object_subscript);
 
   // Now we can define Class, which is a subclass of Object.
   vm->classClass = defineClass(vm, coreModule, "Class");
