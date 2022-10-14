@@ -1111,7 +1111,7 @@ static void nextToken(Parser* parser)
       case '-': makeToken(parser, TOKEN_MINUS); return;
       case '~': makeToken(parser, TOKEN_TILDE); return;
       case '?': makeToken(parser, TOKEN_QUESTION); return;
-        
+
       case '|': twoCharToken(parser, '|', TOKEN_PIPEPIPE, TOKEN_PIPE); return;
       case '&': twoCharToken(parser, '&', TOKEN_AMPAMP, TOKEN_AMP); return;
       case '=': twoCharToken(parser, '=', TOKEN_EQEQ, TOKEN_EQ); return;
@@ -2634,6 +2634,20 @@ void mixedSignature(Compiler* compiler, Signature* signature)
   }
 }
 
+// Compiles a missing method declaration:  ?(_,_)
+void missingMethodSignature(Compiler* compiler, Signature* signature)
+{
+  signature->type = SIG_METHOD;
+
+  consume(compiler, TOKEN_LEFT_PAREN, "Expect '(' after '?' for missing method declaration.");
+  finishParameterList(compiler, signature);
+  consume(compiler, TOKEN_RIGHT_PAREN, "Expect ')' after parameter name.");
+
+  if(signature->arity != 2) {
+    error(compiler, "Missing method declaration '?()' must have two parameters.");
+  }
+}
+
 // Compiles an optional setter parameter in a method [signature].
 //
 // Returns `true` if it was a setter.
@@ -2774,7 +2788,7 @@ GrammarRule rules[] =
   /* TOKEN_AMPAMP        */ INFIX(PREC_LOGICAL_AND, and_),
   /* TOKEN_BANG          */ PREFIX_OPERATOR("!"),
   /* TOKEN_TILDE         */ PREFIX_OPERATOR("~"),
-  /* TOKEN_QUESTION      */ INFIX(PREC_ASSIGNMENT, conditional),
+  /* TOKEN_QUESTION      */ { NULL, conditional, missingMethodSignature, PREC_ASSIGNMENT, NULL },
   /* TOKEN_EQ            */ UNUSED,
   /* TOKEN_LT            */ INFIX_OPERATOR(PREC_COMPARISON, "<"),
   /* TOKEN_GT            */ INFIX_OPERATOR(PREC_COMPARISON, ">"),

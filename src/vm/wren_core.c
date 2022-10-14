@@ -13,6 +13,8 @@
 
 #include "wren_core.wren.inc"
 
+extern Value wrenMakeCallClosure(WrenVM* vm, const char* signature);
+
 DEF_PRIMITIVE(bool_not)
 {
   RETURN_BOOL(!AS_BOOL(args[0]));
@@ -901,23 +903,12 @@ DEF_PRIMITIVE(object_subscript)
 {
   if (!validateString(vm, args[1], "Argument")) return false;
 
-  Obj* obj = AS_OBJ(args[0]);
-  ObjClass* classObj = obj->classObj;
+  const char* signature = AS_CSTRING(args[1]);
+  ObjClosure* closure = AS_CLOSURE(wrenMakeCallClosure(vm, signature));
 
-  ObjString *str = AS_STRING(args[1]);
-  int symbol = wrenSymbolTableFind(&vm->methodNames, str->value, str->length);
-
-  Method* method;
-  if (symbol < 0 || symbol >= classObj->methods.count ||
-      (method = &classObj->methods.data[symbol])->type == METHOD_NONE)
-  {
-    vm->fiber->error = wrenStringFormat(vm, 
-      "@ does not implement '$'.", OBJ_VAL(classObj->name), str->value);
-    return false;
-  }
-
+  // pop off the string argument
   vm->fiber->stackTop--;
-  wrenCallFunction(vm, vm->fiber, method->as.closure, 1);
+  wrenCallFunction(vm, vm->fiber, closure, 1);
 
   return false;
 }
@@ -1243,6 +1234,55 @@ DEF_PRIMITIVE(system_writeString)
   RETURN_VAL(args[1]);
 }
 
+static bool wrenSystemCall_(WrenVM* vm, ObjList* argumentList, ObjClosure* closure, Value receiver, int numToPop)
+{
+  int argumentCount = closure->fn->arity;
+  if (argumentList->elements.count != argumentCount) {
+    RETURN_ERROR( "Argument list count passed to System.call does not much method signature.");
+  }
+
+  // pop off the arguments from this system call
+  vm->fiber->stackTop -= numToPop;
+
+  // push on the new arguments
+  *vm->fiber->stackTop = receiver;
+  vm->fiber->stackTop++;
+
+  for (int i = 0; i < argumentCount; i++) {
+    *vm->fiber->stackTop = argumentList->elements.data[i];
+    vm->fiber->stackTop++;
+  }
+
+  wrenCallFunction(vm, vm->fiber, closure, argumentCount + 1);
+
+  return false;
+}
+
+// System.call(function, argumentList)
+DEF_PRIMITIVE(system_call_fn)
+{
+  if (!validateFn(vm, args[1], "First argument")) return false;
+  if (!validateList(vm, args[2], "Second argument")) return false;
+
+  ObjClosure* closure = AS_CLOSURE(args[1]);
+  ObjList* argumentList = AS_LIST(args[2]);
+
+  return wrenSystemCall_(vm, argumentList,  AS_CLOSURE(args[1]), args[1], 3);
+}
+
+// System.call(target, signature, argumentList)
+DEF_PRIMITIVE(system_call)
+{
+  if (!validateString(vm, args[2], "Signature")) return false;
+  if (!validateList(vm, args[3], "Third argument")) return false;
+
+  const char* signature = AS_CSTRING(args[2]);
+  ObjClosure* closure = AS_CLOSURE(wrenMakeCallClosure(vm, signature));
+  ObjList* argumentList = AS_LIST(args[3]);
+
+  return wrenSystemCall_(vm, argumentList, closure, args[1], 4);
+}
+
 // Creates either the Object or Class class in the core module with [name].
 static ObjClass* defineClass(WrenVM* vm, ObjModule* module, const char* name)
 {
@@ -1497,6 +1537,8 @@ void wrenInitializeCore(WrenVM* vm)
   PRIMITIVE(systemClass->obj.classObj, "clock", system_clock);
   PRIMITIVE(systemClass->obj.classObj, "gc()", system_gc);
   PRIMITIVE(systemClass->obj.classObj, "writeString_(_)", system_writeString);
+  PRIMITIVE(systemClass->obj.classObj, "call(_,_)", system_call_fn);
+  PRIMITIVE(systemClass->obj.classObj, "call(_,_,_)", system_call);
 
   // While bootstrapping the core types and running the core module, a number
   // of string objects have been created, many of which were instantiated

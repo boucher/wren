@@ -433,8 +433,6 @@ static void runtimeError(WrenVM* vm)
   vm->apiStack = NULL;
 }
 
-// Aborts the current fiber with an appropriate method not found error for a
-// method with [symbol] on [classObj].
 static void methodNotFound(WrenVM* vm, ObjClass* classObj, int symbol)
 {
   vm->fiber->error = wrenStringFormat(vm, "@ does not implement '$'.",
@@ -1034,12 +1032,40 @@ static WrenInterpretResult runInterpreter(WrenVM* vm, register ObjFiber* fiber)
       goto completeCall;
 
     completeCall:
-      // If the class's method table doesn't include the symbol, bail.
+      // If the class's method table doesn't include the symbol, call ?(_,_).
       if (symbol >= classObj->methods.count ||
           (method = &classObj->methods.data[symbol])->type == METHOD_NONE)
       {
-        methodNotFound(vm, classObj, symbol);
-        RUNTIME_ERROR();
+        // capture original signature
+        int originalSymbol = symbol;
+        ObjString *methodName = vm->methodNames.data[originalSymbol];
+
+        // look up symbol for missing methods ?(_,_), reassign method
+        // check if classObj implements and throw a runtime error if not
+        symbol = wrenSymbolTableFind(&vm->methodNames, "?(_,_)", 6);
+        if (symbol == -1 || symbol >= classObj->methods.count ||
+          (method = &classObj->methods.data[symbol])->type == METHOD_NONE) {
+            methodNotFound(vm, classObj, originalSymbol);
+            RUNTIME_ERROR();
+        }
+
+        // capture arguments into List (not including the receiver)
+        int listLength = numArgs - 1;
+        ObjList* result = wrenNewList(vm, listLength);
+        wrenPushRoot(vm, (Obj *)result);
+        while (--listLength >= 0) {
+          result->elements.data[listLength] = POP();
+        }
+
+        PUSH(OBJ_VAL(methodName));
+        PUSH(OBJ_VAL(result));
+        wrenPopRoot(vm);
+
+        // update number of arguments to new method ?(_,_)
+        numArgs = 3;
+
+        // The receiver is the first argument.
+        args = fiber->stackTop - numArgs;
       }
 
       switch (method->type)
@@ -1389,7 +1415,7 @@ static WrenInterpretResult runInterpreter(WrenVM* vm, register ObjFiber* fiber)
   #undef READ_SHORT
 }
 
-WrenHandle* wrenMakeCallHandle(WrenVM* vm, const char* signature)
+Value wrenMakeCallClosure(WrenVM* vm, const char* signature)
 {
   ASSERT(signature != NULL, "Signature cannot be NULL.");
   
@@ -1421,13 +1447,13 @@ WrenHandle* wrenMakeCallHandle(WrenVM* vm, const char* signature)
   
   // Create a little stub function that assumes the arguments are on the stack
   // and calls the method.
-  ObjFn* fn = wrenNewFunction(vm, NULL, numParams + 1);
-  
-  // Wrap the function in a closure and then in a handle. Do this here so it
-  // doesn't get collected as we fill it in.
-  WrenHandle* value = wrenMakeHandle(vm, OBJ_VAL(fn));
-  value->value = OBJ_VAL(wrenNewClosure(vm, fn));
-  
+  ObjFn* fn = wrenNewFunction(vm, NULL, numParams + 1);  
+  wrenPushRoot(vm, (Obj*)fn);
+  fn->arity = numParams;
+
+  ObjClosure* closure = wrenNewClosure(vm, fn);
+  wrenPushRoot(vm, (Obj*)closure);
+
   wrenByteBufferWrite(vm, &fn->code, (uint8_t)(CODE_CALL_0 + numParams));
   wrenByteBufferWrite(vm, &fn->code, (method >> 8) & 0xff);
   wrenByteBufferWrite(vm, &fn->code, method & 0xff);
@@ -1436,6 +1462,16 @@ WrenHandle* wrenMakeCallHandle(WrenVM* vm, const char* signature)
   wrenIntBufferFill(vm, &fn->debug->sourceLines, 0, 5);
   wrenFunctionBindName(vm, fn, signature, signatureLength);
 
+  wrenPopRoot(vm);
+  wrenPopRoot(vm);
+
+  return OBJ_VAL(closure);
+}
+
+WrenHandle* wrenMakeCallHandle(WrenVM* vm, const char* signature)
+{
+  Value closure = wrenMakeCallClosure(vm, signature);
+  WrenHandle* value = wrenMakeHandle(vm, closure);
   return value;
 }
 

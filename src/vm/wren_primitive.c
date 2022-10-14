@@ -65,6 +65,12 @@ bool validateString(WrenVM* vm, Value arg, const char* argName)
   RETURN_ERROR_FMT("$ must be a string.", argName);
 }
 
+bool validateList(WrenVM* vm, Value arg, const char* argName)
+{
+  if (IS_LIST(arg)) return true;
+  RETURN_ERROR_FMT("$ must be a list.", argName);
+}
+
 uint32_t calculateRange(WrenVM* vm, ObjRange* range, uint32_t* length,
                         int* step)
 {

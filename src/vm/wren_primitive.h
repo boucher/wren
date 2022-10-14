@@ -94,6 +94,10 @@ uint32_t validateIndex(WrenVM* vm, Value arg, uint32_t count,
 // reports an error and returns false.
 bool validateString(WrenVM* vm, Value arg, const char* argName);
 
+// Validates that the given [arg] is a List. Returns true if it is. If not,
+// reports an error and returns false.
+bool validateList(WrenVM* vm, Value arg, const char* argName);
+
 // Given a [range] and the [length] of the object being operated on, determines
 // the series of elements that should be chosen from the underlying object.
 // Handles ranges that count backwards from the end as well as negative ranges.
