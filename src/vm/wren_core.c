@@ -57,6 +57,20 @@ DEF_PRIMITIVE(class_attributes)
   RETURN_VAL(AS_CLASS(args[0])->attributes);
 }
 
+DEF_PRIMITIVE(class_implements)
+{
+  if (!validateString(vm, args[1], "Signature")) return false;
+
+  ObjClass* classObj = AS_CLASS(args[0]);
+  ObjString* signature = AS_STRING(args[1]);
+
+  int symbol = wrenSymbolTableFind(&vm->methodNames, signature->value, signature->length);
+
+  RETURN_BOOL(symbol != -1 && 
+              symbol < classObj->methods.count &&
+              classObj->methods.data[symbol].type != METHOD_NONE);
+}
+
 DEF_PRIMITIVE(fiber_new)
 {
   if (!validateFn(vm, args[1], "Argument")) return false;
@@ -1324,6 +1338,7 @@ void wrenInitializeCore(WrenVM* vm)
   PRIMITIVE(vm->classClass, "supertype", class_supertype);
   PRIMITIVE(vm->classClass, "toString", class_toString);
   PRIMITIVE(vm->classClass, "attributes", class_attributes);
+  PRIMITIVE(vm->classClass, "implements(_)", class_implements);
 
   // Finally, we can define Object's metaclass which is a subclass of Class.
   ObjClass* objectMetaclass = defineClass(vm, coreModule, "Object metaclass");
